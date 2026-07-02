@@ -1,0 +1,11 @@
+node_modules
+dist
+dev-dist
+*.local
+.DS_Store
+.idea
+
+# личные данные — не коммитим
+IMG_*.PNG
+IMG_*.png
+*.gymtracker
