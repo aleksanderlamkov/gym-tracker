@@ -148,21 +148,32 @@ input {
 .week-strip {
   background: var(--fill);
   border-radius: var(--radius);
-  padding: 12px 4px 10px;
+  padding: 12px 0 10px;
   overflow: hidden;
-  touch-action: pan-y;
   user-select: none;
+  -webkit-user-select: none;
 }
 
-.week-panes {
+.week-scroller {
   display: flex;
-  width: 300%;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.week-scroller::-webkit-scrollbar {
+  display: none;
 }
 
 .week-pane {
-  width: 33.3333%;
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
   display: grid;
   grid-template-columns: repeat(7, 1fr);
+  padding: 0 4px;
 }
 
 .day-cell {

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { addDays, todayISO, weekDays, WEEKDAYS_SHORT } from '../../lib/dates';
 
 interface Props {
@@ -9,86 +9,113 @@ interface Props {
   onChangeWeek: (monday: string) => void;
 }
 
+/**
+ * Карусель недель на нативном scroll-snap: свайп обрабатывает браузер,
+ * JS только перецентровывает ленту после остановки скролла.
+ */
 export function WeekStrip({ viewedMonday, selected, markers, onSelect, onChangeWeek }: Props) {
-  const [drag, setDrag] = useState(0);
-  const [anim, setAnim] = useState<null | -1 | 0 | 1>(null); // -1 = к следующей неделе (сдвиг влево)
-  const gesture = useRef<{ x: number; y: number; dragging: boolean } | null>(null);
-  const suppressClick = useRef(false);
+  const scroller = useRef<HTMLDivElement>(null);
+  const touching = useRef(false);
+  const settleTimer = useRef(0);
+  const suspended = useRef(false);
   const today = todayISO();
 
-  const panes = [-7, 0, 7].map((off) => weekDays(addDays(viewedMonday, off)));
+  // всегда держим в центре текущую (среднюю) панель
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el) el.scrollLeft = el.clientWidth;
+  }, [viewedMonday]);
 
-  const commit = (dir: -1 | 1) => {
-    setAnim(dir);
-    setTimeout(() => {
-      onChangeWeek(addDays(viewedMonday, dir === -1 ? 7 : -7));
-      setAnim(null);
-      setDrag(0);
-    }, 240);
-  };
+  useLayoutEffect(() => {
+    let t = 0;
+    const onResize = () => {
+      // при ресайзе/повороте браузер кламует scrollLeft — это не свайп
+      suspended.current = true;
+      window.clearTimeout(settleTimer.current);
+      const el = scroller.current;
+      if (el) el.scrollLeft = el.clientWidth;
+      window.clearTimeout(t);
+      t = window.setTimeout(() => {
+        suspended.current = false;
+        const el2 = scroller.current;
+        if (el2) el2.scrollLeft = el2.clientWidth;
+      }, 250);
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.clearTimeout(t);
+    };
+  }, []);
 
-  const paneShift = anim === -1 ? '-66.666%' : anim === 1 ? '0%' : '-33.333%';
-  const style = {
-    transform:
-      anim !== null
-        ? `translateX(${paneShift})`
-        : `translateX(calc(-33.333% + ${drag}px))`,
-    transition: anim !== null || (drag === 0 && !gesture.current?.dragging) ? 'transform .24s ease' : 'none'
+  const settle = () => {
+    const el = scroller.current;
+    if (!el || touching.current || suspended.current) return;
+    const w = el.clientWidth;
+    if (!w) return;
+    const idx = Math.round(el.scrollLeft / w);
+    // ещё не доехали до снап-точки — ждём дальше
+    if (Math.abs(el.scrollLeft - idx * w) > w * 0.25) {
+      settleTimer.current = window.setTimeout(() => settleRef.current(), 90);
+      return;
+    }
+    if (idx !== 1) onChangeWeek(addDays(viewedMonday, (idx - 1) * 7));
   };
+  const settleRef = useRef(settle);
+  settleRef.current = settle;
+
+  // нативные слушатели скролла: без реактовской обвязки, passive — не мешаем композитору
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const onScroll = () => {
+      window.clearTimeout(settleTimer.current);
+      settleTimer.current = window.setTimeout(() => settleRef.current(), 90);
+    };
+    const onScrollEnd = () => {
+      window.clearTimeout(settleTimer.current);
+      settleRef.current();
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    el.addEventListener('scrollend', onScrollEnd);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      el.removeEventListener('scrollend', onScrollEnd);
+      window.clearTimeout(settleTimer.current);
+    };
+  }, []);
+
+  const panes: { monday: string; days: string[] }[] = [-7, 0, 7].map((off) => {
+    const monday = addDays(viewedMonday, off);
+    return { monday, days: weekDays(monday) };
+  });
 
   return (
-    <div
-      className="week-strip"
-      onPointerDown={(e) => {
-        if (anim !== null) return;
-        gesture.current = { x: e.clientX, y: e.clientY, dragging: false };
-      }}
-      onPointerMove={(e) => {
-        const g = gesture.current;
-        if (!g || anim !== null) return;
-        const dx = e.clientX - g.x;
-        const dy = e.clientY - g.y;
-        if (!g.dragging) {
-          if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
-            g.dragging = true;
-            suppressClick.current = true;
-            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-          } else {
-            return;
-          }
-        }
-        setDrag(dx);
-      }}
-      onPointerUp={() => {
-        const g = gesture.current;
-        gesture.current = null;
-        setTimeout(() => (suppressClick.current = false), 50);
-        if (!g?.dragging) return;
-        if (drag < -55) commit(-1);
-        else if (drag > 55) commit(1);
-        else setDrag(0);
-      }}
-      onPointerCancel={() => {
-        gesture.current = null;
-        suppressClick.current = false;
-        setDrag(0);
-      }}
-    >
-      <div className="week-panes" style={style}>
-        {panes.map((days, pi) => (
-          <div className="week-pane" key={pi}>
-            {days.map((iso, di) => {
+    <div className="week-strip">
+      <div
+        className="week-scroller"
+        ref={scroller}
+        onPointerDown={() => {
+          touching.current = true;
+        }}
+        onPointerUp={() => {
+          touching.current = false;
+          window.clearTimeout(settleTimer.current);
+          settleTimer.current = window.setTimeout(() => settleRef.current(), 90);
+        }}
+        onPointerCancel={() => {
+          touching.current = false;
+          window.clearTimeout(settleTimer.current);
+          settleTimer.current = window.setTimeout(() => settleRef.current(), 90);
+        }}
+      >
+        {panes.map((pane) => (
+          <div className="week-pane" key={pane.monday}>
+            {pane.days.map((iso, di) => {
               const isSelected = iso === selected;
               const isToday = iso === today;
               return (
-                <button
-                  key={iso}
-                  className="day-cell"
-                  onClick={() => {
-                    if (suppressClick.current) return;
-                    onSelect(iso);
-                  }}
-                >
+                <button key={iso} className="day-cell" onClick={() => onSelect(iso)}>
                   <span className="day-label">{WEEKDAYS_SHORT[di]}</span>
                   <span
                     className={
