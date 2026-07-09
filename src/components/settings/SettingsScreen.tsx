@@ -124,7 +124,9 @@ export function SettingsScreen({ data }: Props) {
           <div className="settings-row static">
             <span className="settings-row-text">
               Gym Tracker
-              <span className="list-row-sub">версия 1.0.0 · данные хранятся только на устройстве</span>
+              <span className="list-row-sub">
+                версия {__APP_VERSION__} · данные хранятся только на устройстве
+              </span>
             </span>
           </div>
         </div>
