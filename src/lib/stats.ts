@@ -72,6 +72,8 @@ export interface ChartSpec {
   title: string;
   /** max за период, показывается рядом с заголовком */
   maxLabel: string;
+  /** форматирование значения точки с единицей — для скраба по графику */
+  format: (v: number) => string;
   points: { date: string; value: number }[];
 }
 
@@ -84,7 +86,8 @@ export function chartsFor(exercise: Exercise, history: DayStat[]): ChartSpec[] {
   const mk = (title: string, sel: (d: DayStat) => number, unit = ''): ChartSpec => {
     const points = history.map((h) => ({ date: h.date, value: sel(h) }));
     const max = Math.max(...points.map((p) => p.value));
-    return { title, maxLabel: `max ${fmt(max)}${unit}`, points };
+    const format = (v: number) => `${fmt(v)}${unit}`;
+    return { title, maxLabel: `max ${format(max)}`, format, points };
   };
 
   if (exercise.metric === 'time') {
